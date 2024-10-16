@@ -11,7 +11,7 @@ import { Prisma } from "@prisma/client";
 import { nylas } from "../lib/nylas";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
-import { NylasResponse, GetFreeBusyResponse } from "nylas";
+import { NylasResponse, GetFreeBusyResponse, FreeBusy } from "nylas";
 
 interface iappProps {
   selectedDate: Date;
@@ -26,6 +26,7 @@ async function getAvailability(selectedDate: Date, userName: string) {
   startOfDay.setHours(0, 0, 0, 0);
   const endOfDay = new Date(selectedDate);
   endOfDay.setHours(23, 59, 59, 999);
+
   const data = await prisma.availability.findFirst({
     where: {
       day: currentDay as Prisma.EnumDayFilter,
@@ -81,10 +82,10 @@ function calculateAvailableTimeSlots(
     new Date()
   );
 
-  // Filtra apenas os resultados válidos que contêm timeSlots
+  // Filtra apenas as respostas válidas que contêm 'timeSlots'
   const validResponses = nylasData.data.filter(
     (response) => "timeSlots" in response
-  ) as GetFreeBusyResponse[];
+  ) as FreeBusy[];
 
   // Extrai os slots ocupados dos dados do Nylas
   const busySlots = validResponses.flatMap((response) =>
