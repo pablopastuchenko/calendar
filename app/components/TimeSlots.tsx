@@ -11,23 +11,17 @@ import { Prisma } from "@prisma/client";
 import { nylas } from "../lib/nylas";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
-import { NylasResponse, GetFreeBusyResponse } from "nylas";
-
-interface TimeSlot {
-  startTime: number;
-  endTime: number;
-}
-
-interface GetFreeBusyResponse {
-  data: {
-    timeSlots: TimeSlot[];
-  }[];
-}
+import { NylasResponse, GetFreeBusyResponse as NylasGetFreeBusyResponse } from "nylas";
 
 interface iappProps {
   selectedDate: Date;
   userName: string;
   meetingDuration: number;
+}
+
+interface TimeSlot {
+  startTime: number;
+  endTime: number;
 }
 
 async function getAvailability(selectedDate: Date, userName: string) {
@@ -37,7 +31,7 @@ async function getAvailability(selectedDate: Date, userName: string) {
   startOfDay.setHours(0, 0, 0, 0);
   const endOfDay = new Date(selectedDate);
   endOfDay.setHours(23, 59, 59, 999);
-  
+
   const data = await prisma.availability.findFirst({
     where: {
       day: currentDay as Prisma.EnumDayFilter,
@@ -75,12 +69,13 @@ function calculateAvailableTimeSlots(
     fromTime: string | undefined;
     tillTime: string | undefined;
   },
-  nylasData: NylasResponse<GetFreeBusyResponse[]>,
+  nylasData: NylasResponse<NylasGetFreeBusyResponse[]>,
   date: string,
   duration: number
 ) {
-  const now = new Date();
+  const now = new Date(); // Get the current time
 
+  // Convert DB availability to Date objects
   const availableFrom = parse(
     `${date} ${dbAvailability.fromTime}`,
     "yyyy-MM-dd HH:mm",
@@ -92,31 +87,27 @@ function calculateAvailableTimeSlots(
     new Date()
   );
 
-  // Verifique se timeSlots existe
-  let busySlots: { start: Date; end: Date }[] = [];
-  if (nylasData.data.length > 0 && 'timeSlots' in nylasData.data[0]) {
-    busySlots = nylasData.data[0].timeSlots.map((slot: TimeSlot) => ({
-      start: fromUnixTime(slot.startTime),
-      end: fromUnixTime(slot.endTime),
-    }));
-  } else {
-    console.error("No time slots found:", nylasData);
-    return [];
-  }
+  // Extract busy slots from Nylas data
+  const busySlots = nylasData.data[0].timeSlots.map((slot: TimeSlot) => ({
+    start: fromUnixTime(slot.startTime),
+    end: fromUnixTime(slot.endTime),
+  }));
 
-  const allSlots = [];
+  // Generate all possible slots within the available time
+  const allSlots: Date[] = [];
   let currentSlot = availableFrom;
   while (isBefore(currentSlot, availableTill)) {
     allSlots.push(currentSlot);
     currentSlot = addMinutes(currentSlot, duration);
   }
 
+  // Filter out busy slots and slots before the current time
   const freeSlots = allSlots.filter((slot) => {
     const slotEnd = addMinutes(slot, duration);
     return (
-      isAfter(slot, now) && 
+      isAfter(slot, now) &&
       !busySlots.some(
-        (busy) =>
+        (busy: { start: Date; end: Date }) =>
           (!isBefore(slot, busy.start) && isBefore(slot, busy.end)) ||
           (isAfter(slotEnd, busy.start) && !isAfter(slotEnd, busy.end)) ||
           (isBefore(slot, busy.start) && isAfter(slotEnd, busy.end))
@@ -124,6 +115,7 @@ function calculateAvailableTimeSlots(
     );
   });
 
+  // Format the free slots
   return freeSlots.map((slot) => format(slot, "HH:mm"));
 }
 
@@ -139,6 +131,7 @@ export async function TimeSlots({
 
   const dbAvailability = { fromTime: data?.fromTime, tillTime: data?.tillTime };
   const formattedDate = format(selectedDate, "yyyy-MM-dd");
+
   const availableSlots = calculateAvailableTimeSlots(
     dbAvailability,
     nylasCalendarData,
